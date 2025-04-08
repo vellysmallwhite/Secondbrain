@@ -121,6 +121,35 @@
       console.error("Error searching diaries by tag:", err);
     }
   }
+
+  /**
+   * 处理日记删除
+   * @param {string} id - 要删除的日记ID
+   */
+  async function handleDeleteDiary(id) {
+    try {
+      await invoke("delete_diary", { id });
+      
+      // 从缓存中删除
+      diaryCache.delete(id);
+      
+      // 从列表中删除
+      diaries = diaries.filter(diary => diary.id !== id);
+      
+      // 如果删除的是当前选中的日记，清空选择
+      if (selectedDiary && selectedDiary.id === id) {
+        selectedDiary = null;
+      }
+      
+      // 刷新图形视图
+      if (graphCanvas) {
+        await graphCanvas.refreshGraph();
+      }
+    } catch (err) {
+      console.error("Error deleting diary:", err);
+      error = "Failed to delete diary";
+    }
+  }
 </script>
 
 <main class="container">
@@ -159,15 +188,23 @@
             <li 
               class="diary-item" 
               class:active={selectedDiary && selectedDiary.id === diary.id}
-              on:click={() => handleSelectDiary({ detail: { id: diary.id } })}
             >
-              <div class="diary-title">{diary.title}</div>
-              <div class="diary-date">{new Date(diary.created_at).toLocaleDateString()}</div>
-              <div class="diary-tags">
-                {#each diary.tags as tag}
-                  <span class="diary-tag">{tag}</span>
-                {/each}
+              <div class="diary-content" on:click={() => handleSelectDiary({ detail: { id: diary.id } })}>
+                <div class="diary-title">{diary.title}</div>
+                <div class="diary-date">{new Date(diary.created_at).toLocaleDateString()}</div>
+                <div class="diary-tags">
+                  {#each diary.tags as tag}
+                    <span class="diary-tag">{tag}</span>
+                  {/each}
+                </div>
               </div>
+              <button 
+                class="delete-button"
+                on:click={() => handleDeleteDiary(diary.id)}
+                title="Delete diary"
+              >
+                ×
+              </button>
             </li>
           {/each}
         </ul>
@@ -289,6 +326,9 @@
   }
   
   .diary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 1rem;
     border-bottom: 1px solid #ddd;
     cursor: pointer;
@@ -301,6 +341,10 @@
   
   .diary-item.active {
     background-color: #e3f2fd;
+  }
+  
+  .diary-content {
+    flex: 1;
   }
   
   .diary-title {
@@ -392,5 +436,24 @@
   
   .back-button:hover {
     text-decoration: underline;
+  }
+
+  .delete-button {
+    background: none;
+    border: none;
+    color: #d32f2f;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  .diary-item:hover .delete-button {
+    opacity: 1;
+  }
+  
+  .delete-button:hover {
+    color: #b71c1c;
   }
 </style>

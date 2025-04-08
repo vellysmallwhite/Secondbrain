@@ -15,12 +15,13 @@ struct AppState {
 #[tauri::command]
 fn save_diary(
     state: State<AppState>,
+    id: Option<String>,
     title: String,
     content: String,
     tags: Vec<String>,
 ) -> Result<String, String> {
     let db = state.db.lock().unwrap();
-    db.save_diary(&title, &content, &tags)
+    db.save_diary(id.as_deref(), &title, &content, &tags)
         .map_err(|e| e.to_string())
 }
 
@@ -48,6 +49,12 @@ fn get_graph_data(state: State<AppState>) -> Result<GraphData, String> {
     db.get_graph_data().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn delete_diary(state: State<AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().unwrap();
+    db.delete_diary(&id).map_err(|e| e.to_string())
+}
+
 fn main() {
     let db = DiaryDB::new();
     let app_state = AppState {
@@ -62,7 +69,8 @@ fn main() {
             get_diary,
             list_diaries,
             search_diaries_by_tag,
-            get_graph_data
+            get_graph_data,
+            delete_diary
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

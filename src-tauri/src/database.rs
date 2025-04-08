@@ -117,18 +117,39 @@ impl DiaryDB {
         Ok(())
     }
     
-    pub fn save_diary(&self, title: &str, content: &str, tags: &[String]) -> SqliteResult<String> {
+    pub fn save_diary(&self, id: Option<&str>, title: &str, content: &str, tags: &[String]) -> SqliteResult<String> {
         let conn = self.pool.get().expect("Failed to get database connection");
         let encrypted_content = self.crypto.encrypt(content);
-        let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let now_str = now.to_rfc3339();
         
-        conn.execute(
-            "INSERT INTO diary_entries (id, title, content, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, title, encrypted_content, now_str, now_str],
-        )?;
+        let diary_id = match id {
+            Some(existing_id) => {
+                // Update existing diary
+                conn.execute(
+                    "UPDATE diary_entries SET title = ?1, content = ?2, updated_at = ?3 WHERE id = ?4",
+                    params![title, encrypted_content, now_str, existing_id],
+                )?;
+                
+                // Delete existing tag relationships
+                conn.execute(
+                    "DELETE FROM diary_tags WHERE diary_id = ?1",
+                    params![existing_id],
+                )?;
+                
+                existing_id.to_string()
+            },
+            None => {
+                // Create new diary
+                let new_id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO diary_entries (id, title, content, created_at, updated_at) 
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![new_id, title, encrypted_content, now_str, now_str],
+                )?;
+                new_id
+            }
+        };
         
         // Process tags
         for tag_name in tags {
@@ -137,11 +158,11 @@ impl DiaryDB {
             // Create relationship
             conn.execute(
                 "INSERT OR IGNORE INTO diary_tags (diary_id, tag_id) VALUES (?1, ?2)",
-                params![id, tag_id],
+                params![diary_id, tag_id],
             )?;
         }
         
-        Ok(id)
+        Ok(diary_id)
     }
     
     fn get_or_create_tag(&self, conn: &Connection, tag_name: &str) -> SqliteResult<String> {
@@ -402,5 +423,17 @@ impl DiaryDB {
         }
         
         Ok(GraphData { nodes, edges })
+    }
+
+    pub fn delete_diary(&self, id: &str) -> SqliteResult<()> {
+        let conn = self.pool.get().expect("Failed to get database connection");
+        
+        // 由于设置了外键约束和 ON DELETE CASCADE，删除日记条目会自动删除相关的标签关系
+        conn.execute(
+            "DELETE FROM diary_entries WHERE id = ?1",
+            params![id],
+        )?;
+        
+        Ok(())
     }
 } 

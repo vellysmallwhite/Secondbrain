@@ -10,7 +10,6 @@
   let content = entry.content || "";
   let tags = entry.tags || [];
   let tagInput = "";
-  let saveTimeout;
   let isSaving = false;
   let saveStatus = "";
 
@@ -18,12 +17,6 @@
 
   // 添加响应式声明，监听 entry 变化
   $: if (entry && entry.id) {
-    // 保存当前编辑内容（如果有未保存的修改）
-    if (!isNew && title && content && title !== entry.title || content !== entry.content || JSON.stringify(tags) !== JSON.stringify(entry.tags)) {
-      saveCurrentEntry();
-    }
-    
-    // 更新编辑器内容为新选择的日记
     title = entry.title || "";
     content = entry.content || "";
     tags = [...(entry.tags || [])];
@@ -38,23 +31,16 @@
     }
   });
 
-  onDestroy(() => {
-    if (saveTimeout) {
-      clearTimeout(saveTimeout);
-    }
-  });
-
   function addTag() {
-    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      tags = [...tags, tagInput.trim()];
+    const trimmedTag = tagInput.trim();
+    if (trimmedTag && !tags.includes(trimmedTag)) {
+      tags = [...tags, trimmedTag];
       tagInput = "";
-      debounceSave();
     }
   }
 
   function removeTag(tag) {
     tags = tags.filter(t => t !== tag);
-    debounceSave();
   }
 
   function handleKeydown(event) {
@@ -62,22 +48,6 @@
       event.preventDefault();
       addTag();
     }
-  }
-
-  function handleInput() {
-    debounceSave();
-  }
-
-  function debounceSave() {
-    if (saveTimeout) {
-      clearTimeout(saveTimeout);
-    }
-    
-    saveStatus = "Saving...";
-    
-    saveTimeout = setTimeout(() => {
-      saveEntry();
-    }, 1000);
   }
 
   async function saveEntry() {
@@ -89,7 +59,21 @@
     isSaving = true;
     
     try {
+      if (isNew) {
+        // 检查标题是否已存在
+        const existingDiaries = await invoke("list_diaries");
+        const titleExists = existingDiaries.some(diary => 
+          diary.title.toLowerCase() === title.toLowerCase() && diary.id !== entry.id
+        );
+        
+        if (titleExists) {
+          saveStatus = "Title already exists";
+          return;
+        }
+      }
+      
       const id = await invoke("save_diary", {
+        id: entry.id || null,
         title,
         content,
         tags
@@ -109,22 +93,6 @@
       isSaving = false;
     }
   }
-
-  // 保存当前编辑的内容
-  async function saveCurrentEntry() {
-    if (saveTimeout) {
-      clearTimeout(saveTimeout);
-      saveTimeout = null;
-    }
-    
-    if (!title.trim()) return;
-    
-    try {
-      await saveEntry();
-    } catch (error) {
-      console.error("Failed to save entry before switching:", error);
-    }
-  }
 </script>
 
 <div class="editor">
@@ -133,7 +101,6 @@
       type="text" 
       placeholder="Title" 
       bind:value={title} 
-      on:input={handleInput}
       class="title-input"
     />
     <div class="save-status">{saveStatus}</div>
@@ -164,9 +131,18 @@
   <textarea 
     placeholder="Write your thoughts..." 
     bind:value={content} 
-    on:input={handleInput}
     class="content-textarea"
   ></textarea>
+
+  <div class="save-button-container">
+    <button 
+      class="save-button" 
+      on:click={saveEntry}
+      disabled={isSaving}
+    >
+      {isSaving ? "Saving..." : "Save"}
+    </button>
+  </div>
 </div>
 
 <style>
@@ -274,5 +250,31 @@
     line-height: 1.5;
     resize: none;
     min-height: 200px;
+    margin-bottom: 1rem;
+  }
+
+  .save-button-container {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .save-button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1.5rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .save-button:hover {
+    background-color: #45a049;
+  }
+
+  .save-button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
   }
 </style> 
