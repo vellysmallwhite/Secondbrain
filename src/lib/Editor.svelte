@@ -12,24 +12,31 @@
   let tagInput = "";
   let isSaving = false;
   let saveStatus = "";
+  let hasUnsavedChanges = false;
 
   const dispatch = createEventDispatcher();
 
   // 添加响应式声明，监听 entry 变化
-  $: if (entry && entry.id) {
+  $: if (entry) {
+    // Always update local state when entry changes
     title = entry.title || "";
     content = entry.content || "";
     tags = [...(entry.tags || [])];
-    isNew = false;
+    isNew = !entry.id;
+    hasUnsavedChanges = false;
   }
 
-  onMount(() => {
-    if (!isNew) {
-      title = entry.title;
-      content = entry.content;
-      tags = [...entry.tags];
+  // 监听内容变化
+  $: {
+    if (entry && entry.id) {
+      hasUnsavedChanges = 
+        title !== entry.title || 
+        content !== entry.content || 
+        JSON.stringify(tags) !== JSON.stringify(entry.tags);
+    } else {
+      hasUnsavedChanges = title.trim() !== "" || content.trim() !== "" || tags.length > 0;
     }
-  });
+  }
 
   function addTag() {
     const trimmedTag = tagInput.trim();
@@ -53,6 +60,11 @@
   async function saveEntry() {
     if (!title.trim()) {
       saveStatus = "Please add a title";
+      return;
+    }
+    
+    if (!hasUnsavedChanges) {
+      saveStatus = "No changes to save";
       return;
     }
     
@@ -80,6 +92,7 @@
       });
       
       saveStatus = "Saved";
+      hasUnsavedChanges = false;
       
       if (isNew) {
         isNew = false;

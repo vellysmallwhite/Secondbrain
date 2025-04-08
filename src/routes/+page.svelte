@@ -66,7 +66,21 @@
   }
 
   async function handleDiarySaved(event) {
+    const { id } = event.detail;
+    
+    // 更新缓存
+    const updatedDiary = await invoke("get_diary", { id });
+    diaryCache.set(id, updatedDiary);
+    
+    // 更新日记列表
     await loadDiaries();
+    
+    // 更新当前选中的日记
+    if (selectedDiary && selectedDiary.id === id) {
+      selectedDiary = updatedDiary;
+    }
+    
+    // 刷新图形视图
     if (graphCanvas) {
       await graphCanvas.refreshGraph();
     }
@@ -85,18 +99,12 @@
     try {
       const id = event.detail.id;
       
-      // 先检查缓存中是否有完整的日记内容
-      const cachedDiary = diaryCache.get(id);
-      if (cachedDiary && cachedDiary.content) {
-        selectedDiary = cachedDiary;
-      } else {
-        // 如果缓存中没有或内容不完整，则从后端获取
-        const diary = await invoke("get_diary", { id });
-        
-        // 更新缓存
-        diaryCache.set(id, diary);
-        selectedDiary = diary;
-      }
+      // Always fetch fresh content from the database
+      const diary = await invoke("get_diary", { id });
+      
+      // Update cache with fresh content
+      diaryCache.set(id, diary);
+      selectedDiary = diary;
       
       activeTab = "editor";
     } catch (err) {
@@ -117,6 +125,11 @@
       diaries = result.sort((a, b) => 
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
+      
+      // Update cache with fresh content for filtered diaries
+      result.forEach(diary => {
+        diaryCache.set(diary.id, diary);
+      });
     } catch (err) {
       console.error("Error searching diaries by tag:", err);
     }
