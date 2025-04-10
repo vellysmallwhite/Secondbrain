@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { createEventDispatcher } from "svelte";
+  import { v4 as uuidv4 } from 'uuid';
 
   // @ts-ignore
   let container;
@@ -21,6 +22,10 @@
   // Debug state
   let showDebug = false;
   let debugMessages = [];
+  
+  // Add these global variables
+  let nodesDataset;
+  let edgesDataset;
   
   function debug(message, data = null) {
     const timestamp = new Date().toLocaleTimeString();
@@ -116,34 +121,29 @@
         edges: data.edges.length
       });
       
-      // Log first node for debugging
-      if (data.nodes.length > 0) {
-        debug("First node data:", data.nodes[0]);
-      }
-      
       // Transform data for vis.js
       // @ts-ignore
-      const nodes = data.nodes.map(node => {
+      const processedNodes = data.nodes.map(node => {
         // Ensure node_type is set
         if (!node.node_type) {
           debug("WARNING: Node missing node_type", node);
         }
         
         return {
-          id: node.id,
-          label: node.label,
+        id: node.id,
+        label: node.label,
           group: node.node_type, // This becomes the group property used for styling
           node_type: node.node_type, // Keep original for reference
-          title: getNodeTooltip(node),
+        title: getNodeTooltip(node),
         };
       });
       
       // Check for diary nodes
-      const diaryNodeCount = nodes.filter(n => n.group === 'diary').length;
+      const diaryNodeCount = processedNodes.filter(n => n.group === 'diary').length;
       debug("Diary nodes count:", diaryNodeCount);
       
       // @ts-ignore
-      const edges = data.edges.map(edge => ({
+      const processedEdges = data.edges.map(edge => ({
         id: edge.id,
         from: edge.source,
         to: edge.target,
@@ -151,11 +151,21 @@
         arrows: 'to',
       }));
       
-      graphData = { nodes, edges };
+      // Store in graphData for initial reference and for network initialization
+      graphData = { nodes: processedNodes, edges: processedEdges };
+      
+      // If datasets are already initialized, update them too
+      if (nodesDataset && edgesDataset) {
+        nodesDataset.clear();
+        edgesDataset.clear();
+        nodesDataset.add(processedNodes);
+        edgesDataset.add(processedEdges);
+      }
+      
       debug("Graph data processed", { 
-        nodeCount: nodes.length, 
-        edgeCount: edges.length,
-        groups: [...new Set(nodes.map(n => n.group))]
+        nodeCount: processedNodes.length, 
+        edgeCount: processedEdges.length,
+        groups: [...new Set(processedNodes.map(n => n.group))]
       });
       
       loading = false;
@@ -186,83 +196,83 @@
     
     try {
       // @ts-ignore
-      const nodes = new window.vis.DataSet(graphData.nodes);
+      nodesDataset = new window.vis.DataSet(graphData.nodes);
       // @ts-ignore
-      const edges = new window.vis.DataSet(graphData.edges);
+      edgesDataset = new window.vis.DataSet(graphData.edges);
       
       debug("Created data sets", { 
-        nodesCount: nodes.length, 
-        edgesCount: edges.length 
+        nodesCount: nodesDataset.length, 
+        edgesCount: edgesDataset.length 
       });
       
-      const data = { nodes, edges };
+      const data = { nodes: nodesDataset, edges: edgesDataset };
       
       // Enhanced options to make nodes more selectable
-      const options = {
-        nodes: {
-          shape: 'dot',
-          size: 16,
-          font: {
-            size: 12,
-            face: 'Tahoma'
-          },
-          borderWidth: 2,
-          shadow: true
+    const options = {
+      nodes: {
+        shape: 'dot',
+        size: 16,
+        font: {
+          size: 12,
+          face: 'Tahoma'
         },
-        edges: {
+        borderWidth: 2,
+        shadow: true
+      },
+      edges: {
           width: 2,
-          shadow: true,
-          smooth: {
-            type: 'continuous'
-          },
-          font: {
+        shadow: true,
+        smooth: {
+          type: 'continuous'
+        },
+        font: {
             size: 12,
-            align: 'middle'
-          },
+          align: 'middle'
+        },
           arrows: {
             to: { enabled: true, scaleFactor: 0.5 }
           },
-          color: {
-            color: '#848484',
-            highlight: '#1E88E5',
+        color: {
+          color: '#848484',
+          highlight: '#1E88E5',
             hover: '#848484',
             inherit: false
-          }
-        },
-        groups: {
-          diary: {
-            color: {
-              background: '#4CAF50',
-              border: '#2E7D32',
-              highlight: { background: '#81C784', border: '#2E7D32' }
+        }
+      },
+      groups: {
+        diary: {
+          color: {
+            background: '#4CAF50',
+            border: '#2E7D32',
+            highlight: { background: '#81C784', border: '#2E7D32' }
             },
             shape: 'dot'
-          },
-          tag: {
-            color: {
-              background: '#2196F3',
-              border: '#1565C0',
-              highlight: { background: '#64B5F6', border: '#1565C0' }
+        },
+        tag: {
+          color: {
+            background: '#2196F3',
+            border: '#1565C0',
+            highlight: { background: '#64B5F6', border: '#1565C0' }
             },
             shape: 'diamond'
-          }
+        }
+      },
+      physics: {
+        stabilization: {
+          iterations: 100
         },
-        physics: {
-          stabilization: {
-            iterations: 100
-          },
-          barnesHut: {
-            gravitationalConstant: -2000,
-            centralGravity: 0.3,
-            springLength: 95,
-            springConstant: 0.04,
-            damping: 0.09
-          }
-        },
-        interaction: {
-          hover: true,
-          tooltipDelay: 200,
-          hideEdgesOnDrag: true,
+        barnesHut: {
+          gravitationalConstant: -2000,
+          centralGravity: 0.3,
+          springLength: 95,
+          springConstant: 0.04,
+          damping: 0.09
+        }
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 200,
+        hideEdgesOnDrag: true,
           navigationButtons: true,
           selectable: true,  // Ensure nodes are selectable
           selectConnectedEdges: false,  // Don't auto-select edges
@@ -272,11 +282,11 @@
       };
       
       // @ts-ignore
-      network = new window.vis.Network(container, data, options);
-      
+    network = new window.vis.Network(container, data, options);
+    
       // Connect all event handlers
       // Click event
-      network.on("click", function(params) {
+    network.on("click", function(params) {
         debug("Network click detected", params);
         handleNetworkClick(params);
       });
@@ -301,15 +311,76 @@
     }
   }
 
-  export async function refreshGraph() {
-    await loadGraphData();
-    if (network) {
-      network.setData({
-        // @ts-ignore
-        nodes: new window.vis.DataSet(graphData.nodes),
-        // @ts-ignore
-        edges: new window.vis.DataSet(graphData.edges)
+  export async function updateGraph(showLoading = false) {
+    try {
+      // Only show loading if explicitly requested
+      if (showLoading) loading = true;
+      
+      // Get updated data
+      const data = await safeInvoke("get_graph_data");
+      
+      debug("Received updated graph data:", {
+        nodes: data.nodes.length,
+        edges: data.edges.length
       });
+      
+      // Process nodes and edges (same logic as loadGraphData)
+      // @ts-ignore
+      const processedNodes = data.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        group: node.node_type,
+        node_type: node.node_type,
+        title: getNodeTooltip(node),
+      }));
+      
+      // @ts-ignore
+      const processedEdges = data.edges.map(edge => ({
+        id: edge.id,
+        from: edge.source,
+        to: edge.target,
+        label: edge.label.replace('tagged_as_', ''),
+        arrows: 'to',
+      }));
+      
+      // Update datasets if network is initialized
+      if (nodesDataset && edgesDataset && network) {
+        // Find nodes/edges to remove
+        const currentNodeIds = nodesDataset.getIds();
+        const newNodeIds = processedNodes.map(n => n.id);
+        const nodesToRemove = currentNodeIds.filter(id => !newNodeIds.includes(id));
+        
+        const currentEdgeIds = edgesDataset.getIds();
+        const newEdgeIds = processedEdges.map(e => e.id);
+        const edgesToRemove = currentEdgeIds.filter(id => !newEdgeIds.includes(id));
+        
+        // Remove deleted items first
+        if (nodesToRemove.length > 0) nodesDataset.remove(nodesToRemove);
+        if (edgesToRemove.length > 0) edgesDataset.remove(edgesToRemove);
+        
+        // Update/add nodes and edges
+        nodesDataset.update(processedNodes);
+        edgesDataset.update(processedEdges);
+        
+        debug("Graph updated smoothly", { 
+          nodesUpdated: processedNodes.length,
+          edgesUpdated: processedEdges.length,
+          nodesRemoved: nodesToRemove.length,
+          edgesRemoved: edgesToRemove.length
+        });
+      } else {
+        // If datasets aren't initialized yet, just update graphData
+        graphData = { nodes: processedNodes, edges: processedEdges };
+        debug("Updated graphData only, network not initialized");
+      }
+      
+      // Always update the internal graphData for consistency
+      graphData = { nodes: processedNodes, edges: processedEdges };
+    } catch (err) {
+      console.error("Error updating graph:", err);
+      error = "Failed to update graph";
+    } finally {
+      if (showLoading) loading = false;
     }
   }
 
@@ -394,7 +465,7 @@
           .then(() => {
             dispatch('relationshipDeleted');
             selectedEdge = null;
-            refreshGraph();
+            updateGraph();
           })
           .catch(err => {
             debug("Error deleting relationship", err);
@@ -543,7 +614,11 @@
               throw new Error("Invalid child ID");
             }
             
+            // Generate a UUID for the relationship
+            const relationshipId = uuidv4();
+            
             const params = {
+              id: relationshipId,
               parentId: clickedNodeId,
               childId: firstNodeId,
               relationshipType: relationshipType
@@ -552,18 +627,63 @@
             debug("Invoking add_relationship with:", params);
             console.log("Creating relationship with params:", params);
             
-            const result = await safeInvoke("add_relationship", params);
+            // Immediately update the graph with the new relationship
+            if (nodesDataset && edgesDataset && network) {
+              // Create a new edge with the relationship data
+              const newEdge = {
+                id: relationshipId,
+                from: params.parentId,
+                to: params.childId,
+                label: params.relationshipType,
+                arrows: 'to'
+              };
+              
+              // Add the new edge to the edges dataset
+              edgesDataset.add(newEdge);
+              
+              // Also update our internal graphData to keep it consistent
+              graphData.edges.push({
+                id: relationshipId,
+                source: params.parentId,
+                target: params.childId,
+                label: params.relationshipType
+              });
+              
+              debug("Locally added new relationship to graph", newEdge);
+            }
             
-            console.log('Relationship created successfully:', result);
-            
-            debug("Relationship created successfully", result);
-            statusMessage = "Relationship created successfully";
+            // Send the request to the backend (we don't need to wait for the result)
+            safeInvoke("add_relationship", params)
+              .then(result => {
+                console.log('Relationship created successfully:', result);
+                debug("Relationship created successfully", result);
+                statusMessage = "Relationship created successfully";
+              })
+              .catch(err => {
+                console.error("Failed to create relationship:", err);
+                debug("Error creating relationship", err);
+                
+                // If there was an error, remove the edge we added
+                if (nodesDataset && edgesDataset) {
+                  try {
+                    edgesDataset.remove(relationshipId);
+                    graphData.edges = graphData.edges.filter(edge => edge.id !== relationshipId);
+                    debug("Removed edge after failed relationship creation");
+                  } catch (e) {
+                    debug("Error removing edge after failed creation:", e);
+                  }
+                }
+                
+                // More detailed error message
+                const errorMsg = typeof err === 'object' ? JSON.stringify(err) : String(err);
+                statusMessage = "Failed to create relationship: " + errorMsg;
+                error = statusMessage;
+              });
             
             // Keep relationship mode active but reset selection
             resetRelationshipState();
-            await refreshGraph(); // Make sure to await this
             
-            // Dispatch event after graph refresh completes
+            // Dispatch event after graph update completes
             dispatch('relationshipCreated');
             
           } catch (err) {
@@ -611,7 +731,7 @@
   async function handleRelationshipDeleted() {
     debug("Relationship deleted");
     // Refresh the graph
-    await refreshGraph();
+    await updateGraph();
   }
 </script>
 

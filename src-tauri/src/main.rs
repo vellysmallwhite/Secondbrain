@@ -7,6 +7,7 @@ mod database;
 use database::{DiaryDB, DiaryEntry, GraphData, Relationship};
 use std::sync::Mutex;
 use tauri::State;
+use uuid::Uuid;
 
 struct AppState {
     db: Mutex<DiaryDB>,
@@ -58,12 +59,14 @@ fn delete_diary(state: State<AppState>, id: String) -> Result<(), String> {
 #[tauri::command]
 fn add_relationship(
     state: State<AppState>,
+    id: Option<String>,
     parent_id: Option<String>,
     child_id: Option<String>,
     relationship_type: Option<String>,
 ) -> Result<String, String> {
     // Add debug logging
     println!("Debug: add_relationship called with parameters:");
+    println!("  - id: '{:?}'", id);
     println!("  - parent_id: '{:?}'", parent_id);
     println!("  - child_id: '{:?}'", child_id);
     println!("  - relationship_type: '{:?}'", relationship_type);
@@ -78,6 +81,7 @@ fn add_relationship(
     let final_parent_id = parent_id.ok_or_else(|| "Parent ID is required".to_string())?;
     let final_child_id = child_id.ok_or_else(|| "Child ID is required".to_string())?;
     let final_relationship_type = relationship_type.unwrap_or_else(|| "depends_on".to_string());
+    let final_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
     
     // Validate parameters
     if final_parent_id.is_empty() {
@@ -90,7 +94,7 @@ fn add_relationship(
     }
     
     let db = state.db.lock().unwrap();
-    db.add_relationship(&final_parent_id, &final_child_id, &final_relationship_type)
+    db.add_relationship(&final_id, &final_parent_id, &final_child_id, &final_relationship_type)
         .map_err(|e| {
             println!("Debug: Error in add_relationship: {}", e);
             e.to_string()

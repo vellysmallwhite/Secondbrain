@@ -488,18 +488,17 @@ impl DiaryDB {
         Ok(())
     }
 
-    pub fn add_relationship(&self, parent_id: &str, child_id: &str, relationship_type: &str) -> SqliteResult<String> {
+    pub fn add_relationship(&self, id: &str, parent_id: &str, child_id: &str, relationship_type: &str) -> SqliteResult<String> {
         let conn = self.pool.get().expect("Failed to get database connection");
         let now = Utc::now().to_rfc3339();
-        let relationship_id = Uuid::new_v4().to_string();
         
         conn.execute(
             "INSERT INTO relationships (id, parent_id, child_id, relationship_type, created_at) 
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![relationship_id, parent_id, child_id, relationship_type, now],
+            params![id, parent_id, child_id, relationship_type, now],
         )?;
         
-        Ok(relationship_id)
+        Ok(id.to_string())
     }
     
     pub fn delete_relationship(&self, id: &str) -> SqliteResult<()> {
