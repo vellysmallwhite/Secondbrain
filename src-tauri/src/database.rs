@@ -48,6 +48,15 @@ pub struct GraphData {
     pub edges: Vec<GraphEdge>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Relationship {
+    pub id: String,
+    pub parent_id: String,
+    pub child_id: String,
+    pub relationship_type: String,
+    pub created_at: String,
+}
+
 pub struct DiaryDB {
     pool: DbPool,
     crypto: Arc<Crypto>,
@@ -78,7 +87,7 @@ impl DiaryDB {
         data_dir.join("diary.db").to_str().unwrap().to_string()
     }
     
-    fn initialize_db(&self) -> SqliteResult<()> {
+    pub fn initialize_db(&self) -> SqliteResult<()> {
         let conn = self.pool.get().expect("Failed to get database connection");
         
         // Create diary entries table
@@ -110,6 +119,20 @@ impl DiaryDB {
                 PRIMARY KEY (diary_id, tag_id),
                 FOREIGN KEY (diary_id) REFERENCES diary_entries (id) ON DELETE CASCADE,
                 FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        
+        // Create relationships table for connecting diary entries
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS relationships (
+                id TEXT PRIMARY KEY,
+                parent_id TEXT NOT NULL,
+                child_id TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (parent_id) REFERENCES diary_entries (id) ON DELETE CASCADE,
+                FOREIGN KEY (child_id) REFERENCES diary_entries (id) ON DELETE CASCADE
             )",
             [],
         )?;
@@ -396,13 +419,16 @@ impl DiaryDB {
         }
         
         // Get all relationships as edges
-        let mut edge_stmt = conn.prepare(
+        let mut edges = Vec::new();
+        
+        // Tag relationships
+        let mut tag_edge_stmt = conn.prepare(
             "SELECT dt.diary_id, dt.tag_id, t.name
              FROM diary_tags dt
              JOIN tags t ON dt.tag_id = t.id"
         )?;
         
-        let edge_iter = edge_stmt.query_map([], |row| {
+        let tag_edge_iter = tag_edge_stmt.query_map([], |row| {
             let diary_id: String = row.get(0)?;
             let tag_id: String = row.get(1)?;
             let tag_name: String = row.get(2)?;
@@ -410,15 +436,40 @@ impl DiaryDB {
             Ok((diary_id, tag_id, tag_name))
         })?;
         
-        let mut edges = Vec::new();
-        for edge_result in edge_iter {
+        for edge_result in tag_edge_iter {
             let (diary_id, tag_id, tag_name) = edge_result?;
             
             edges.push(GraphEdge {
-                id: format!("{}-{}", diary_id, tag_id),
+                id: format!("tag-{}-{}", diary_id, tag_id),
                 source: diary_id,
                 target: tag_id,
                 label: format!("tagged_as_{}", tag_name),
+            });
+        }
+        
+        // Diary entry relationships
+        let mut rel_edge_stmt = conn.prepare(
+            "SELECT id, parent_id, child_id, relationship_type
+             FROM relationships"
+        )?;
+        
+        let rel_edge_iter = rel_edge_stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let parent_id: String = row.get(1)?;
+            let child_id: String = row.get(2)?;
+            let relationship_type: String = row.get(3)?;
+            
+            Ok((id, parent_id, child_id, relationship_type))
+        })?;
+        
+        for edge_result in rel_edge_iter {
+            let (id, parent_id, child_id, relationship_type) = edge_result?;
+            
+            edges.push(GraphEdge {
+                id,
+                source: child_id,     // Child is the source of the edge
+                target: parent_id,    // Parent is the target
+                label: relationship_type,
             });
         }
         
@@ -435,5 +486,67 @@ impl DiaryDB {
         )?;
         
         Ok(())
+    }
+
+    pub fn add_relationship(&self, parent_id: &str, child_id: &str, relationship_type: &str) -> SqliteResult<String> {
+        let conn = self.pool.get().expect("Failed to get database connection");
+        let now = Utc::now().to_rfc3339();
+        let relationship_id = Uuid::new_v4().to_string();
+        
+        conn.execute(
+            "INSERT INTO relationships (id, parent_id, child_id, relationship_type, created_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![relationship_id, parent_id, child_id, relationship_type, now],
+        )?;
+        
+        Ok(relationship_id)
+    }
+    
+    pub fn delete_relationship(&self, id: &str) -> SqliteResult<()> {
+        let conn = self.pool.get().expect("Failed to get database connection");
+        
+        conn.execute(
+            "DELETE FROM relationships WHERE id = ?1",
+            params![id],
+        )?;
+        
+        Ok(())
+    }
+    
+    pub fn get_relationships(&self, diary_id: &str) -> SqliteResult<Vec<Relationship>> {
+        let conn = self.pool.get().expect("Failed to get database connection");
+        
+        let mut stmt = conn.prepare(
+            "SELECT id, parent_id, child_id, relationship_type, created_at 
+             FROM relationships 
+             WHERE parent_id = ?1 OR child_id = ?1"
+        )?;
+        
+        let relationship_iter = stmt.query_map(params![diary_id, diary_id], |row| {
+            let id: String = row.get(0)?;
+            let parent_id: String = row.get(1)?;
+            let child_id: String = row.get(2)?;
+            let relationship_type: String = row.get(3)?;
+            let created_at_str: String = row.get(4)?;
+            
+            let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            
+            Ok(Relationship {
+                id,
+                parent_id,
+                child_id,
+                relationship_type,
+                created_at: created_at.to_rfc3339(),
+            })
+        })?;
+        
+        let mut relationships = Vec::new();
+        for relationship_result in relationship_iter {
+            relationships.push(relationship_result?);
+        }
+        
+        Ok(relationships)
     }
 } 
