@@ -65,7 +65,9 @@ pub struct DiaryDB {
 impl DiaryDB {
     pub fn new() -> Self {
         let db_path = Self::get_db_path();
-        let manager = SqliteConnectionManager::file(db_path);
+        let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+            conn.execute_batch("PRAGMA foreign_keys = ON;")
+        });
         let pool = Pool::new(manager).expect("Failed to create database pool");
         
         let crypto = Arc::new(Crypto::new());
@@ -89,6 +91,9 @@ impl DiaryDB {
     
     pub fn initialize_db(&self) -> SqliteResult<()> {
         let conn = self.pool.get().expect("Failed to get database connection");
+        
+        // Enable foreign key constraints
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
         
         // Create diary entries table
         conn.execute(
@@ -477,14 +482,89 @@ impl DiaryDB {
     }
 
     pub fn delete_diary(&self, id: &str) -> SqliteResult<()> {
+        println!("📝 [DELETE_DIARY] Starting deletion for diary ID: {}", id);
+        
+        // Get a connection from the pool
         let conn = self.pool.get().expect("Failed to get database connection");
         
-        // 由于设置了外键约束和 ON DELETE CASCADE，删除日记条目会自动删除相关的标签关系
-        conn.execute(
-            "DELETE FROM diary_entries WHERE id = ?1",
-            params![id],
+        // Check foreign keys status
+        let foreign_keys_enabled: i32 = conn.query_row(
+            "PRAGMA foreign_keys",
+            [],
+            |row| row.get(0)
         )?;
+        println!("📝 [DELETE_DIARY] Foreign keys enabled: {}", foreign_keys_enabled);
         
+        // Check for existing relationships
+        let rel_count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM relationships WHERE parent_id = ?1 OR child_id = ?1",
+            params![id],
+            |row| row.get(0)
+        )?;
+        println!("📝 [DELETE_DIARY] Found {} relationships for this diary", rel_count);
+        
+        // Check for existing tags
+        let tags_count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM diary_tags WHERE diary_id = ?1",
+            params![id],
+            |row| row.get(0)
+        )?;
+        println!("📝 [DELETE_DIARY] Found {} tag connections for this diary", tags_count);
+        
+        // First, manually delete any relationships
+        println!("📝 [DELETE_DIARY] Step 1: Manually deleting relationships");
+        let deleted_rels = conn.execute(
+            "DELETE FROM relationships WHERE parent_id = ?1 OR child_id = ?1",
+            params![id]
+        )?;
+        println!("📝 [DELETE_DIARY] Deleted {} relationships", deleted_rels);
+        
+        // Second, manually delete tag connections
+        println!("📝 [DELETE_DIARY] Step 2: Manually deleting tag connections");
+        let deleted_tags = conn.execute(
+            "DELETE FROM diary_tags WHERE diary_id = ?1",
+            params![id]
+        )?;
+        println!("📝 [DELETE_DIARY] Deleted {} tag connections", deleted_tags);
+        
+        // Finally, delete the diary entry
+        println!("📝 [DELETE_DIARY] Step 3: Deleting the diary entry");
+        let deleted_diary = conn.execute(
+            "DELETE FROM diary_entries WHERE id = ?1",
+            params![id]
+        )?;
+        println!("📝 [DELETE_DIARY] Deleted {} diary entries", deleted_diary);
+        
+        if deleted_diary == 0 {
+            println!("⚠️ [DELETE_DIARY] Warning: No diary entries were deleted!");
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        
+        // Verify all relationships were deleted
+        let remaining_rels: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM relationships WHERE parent_id = ?1 OR child_id = ?1",
+            params![id],
+            |row| row.get(0)
+        )?;
+        println!("📝 [DELETE_DIARY] Remaining relationships: {}", remaining_rels);
+        
+        if remaining_rels > 0 {
+            println!("⚠️ [DELETE_DIARY] Warning: Some relationships remained after deletion!");
+        }
+        
+        // Verify all tag connections were deleted
+        let remaining_tags: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM diary_tags WHERE diary_id = ?1",
+            params![id],
+            |row| row.get(0)
+        )?;
+        println!("📝 [DELETE_DIARY] Remaining tag connections: {}", remaining_tags);
+        
+        if remaining_tags > 0 {
+            println!("⚠️ [DELETE_DIARY] Warning: Some tag connections remained after deletion!");
+        }
+        
+        println!("📝 [DELETE_DIARY] Deletion process completed successfully");
         Ok(())
     }
 

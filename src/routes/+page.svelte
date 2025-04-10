@@ -82,7 +82,7 @@
     
     // 刷新图形视图
     if (graphCanvas) {
-      await graphCanvas.refreshGraph();
+      await graphCanvas.updateGraph();
     }
   }
 
@@ -140,27 +140,44 @@
    * @param {string} id - 要删除的日记ID
    */
   async function handleDeleteDiary(id) {
+    console.log(`[Frontend] Attempting to delete diary with ID: ${id}`);
+    
+    if (!id) {
+      console.error("[Frontend] Cannot delete diary - ID is empty or invalid");
+      error = "Cannot delete diary: Invalid ID";
+      return;
+    }
+    
     try {
+      console.log(`[Frontend] Sending delete request to backend for diary ID: ${id}`);
       await invoke("delete_diary", { id });
+      console.log(`[Frontend] Backend reported successful deletion of diary ID: ${id}`);
       
       // 从缓存中删除
       diaryCache.delete(id);
+      console.log(`[Frontend] Removed diary ID ${id} from cache`);
       
       // 从列表中删除
       diaries = diaries.filter(diary => diary.id !== id);
+      console.log(`[Frontend] Removed diary ID ${id} from UI list`);
       
       // 如果删除的是当前选中的日记，清空选择
       if (selectedDiary && selectedDiary.id === id) {
+        console.log(`[Frontend] Deleted diary was selected, clearing selection`);
         selectedDiary = null;
       }
       
       // 刷新图形视图
       if (graphCanvas) {
-        await graphCanvas.refreshGraph();
+        console.log(`[Frontend] Refreshing graph canvas after deletion`);
+        await graphCanvas.updateGraph();
+        console.log(`[Frontend] Graph refresh complete`);
       }
+      
+      console.log(`[Frontend] Diary deletion process completed successfully`);
     } catch (err) {
-      console.error("Error deleting diary:", err);
-      error = "Failed to delete diary";
+      console.error(`[Frontend] Error deleting diary ID ${id}:`, err);
+      error = `Failed to delete diary: ${err}`;
     }
   }
 </script>

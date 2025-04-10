@@ -52,8 +52,26 @@ fn get_graph_data(state: State<AppState>) -> Result<GraphData, String> {
 
 #[tauri::command]
 fn delete_diary(state: State<AppState>, id: String) -> Result<(), String> {
+    println!("🚀 [TAURI] delete_diary command called with ID: {}", id);
+    
+    if id.is_empty() {
+        println!("❌ [TAURI] delete_diary rejected - empty ID provided");
+        return Err("Diary ID cannot be empty".to_string());
+    }
+    
     let db = state.db.lock().unwrap();
-    db.delete_diary(&id).map_err(|e| e.to_string())
+    
+    println!("🚀 [TAURI] Acquired database lock, forwarding delete request to DiaryDB");
+    match db.delete_diary(&id) {
+        Ok(_) => {
+            println!("✅ [TAURI] delete_diary succeeded for ID: {}", id);
+            Ok(())
+        },
+        Err(e) => {
+            println!("❌ [TAURI] delete_diary failed: {:?}", e);
+            Err(format!("Failed to delete diary: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
